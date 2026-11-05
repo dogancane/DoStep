@@ -10,8 +10,8 @@ Browser-based viewer for `.stp` / `.step` 3D models. Files are parsed locally in
 
 ## Files
 - `index.html`: the viewer
-- `occt-import-js.wasm`: OpenCascade STEP import engine (must stay next to index.html)
-- `license.*.txt`: third-party licenses (OpenCascade is LGPL 2.1, keep these in the repo)
+- `lib/`: three.js r147, OrbitControls, occt-import-js and its OpenCascade wasm engine. Bundled locally so the site works without external CDNs.
+- `lib/license.*.txt`: third-party licenses (OpenCascade is LGPL 2.1, keep these in the repo)
 
 ## Hosting
 GitHub Pages: Settings > Pages > Deploy from a branch > `main` / root.
