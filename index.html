@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DoStep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-height workbench, slim toolbar on top, viewport left, part tree + data panel right (stacks on phones) */
+:root {
+  --bg: #eef1f3;
+  --panel: #ffffff;
+  --line: #d5dbe0;
+  --fg: #1b2329;
+  --muted: #5f6d78;
+  --accent: #1f6fb2;
+  --accent-soft: #e2edf7;
+  --view-top: #f7f9fa;
+  --view-bot: #d9e0e5;
+  --grid: #b9c3cb;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171b; --panel: #1a2126; --line: #2c363d; --fg: #e3e8ec; --muted: #8d9aa4;
+    --accent: #5aa7e6; --accent-soft: #1d3346; --view-top: #252e35; --view-bot: #0f1417; --grid: #3a464f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171b; --panel: #1a2126; --line: #2c363d; --fg: #e3e8ec; --muted: #8d9aa4;
+  --accent: #5aa7e6; --accent-soft: #1d3346; --view-top: #252e35; --view-bot: #0f1417; --grid: #3a464f;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 600; letter-spacing: .01em; margin-right: 6px; display: flex; align-items: baseline; gap: 8px; }
+.brand small { font-family: var(--font-mono); font-weight: 400; color: var(--muted); font-size: 12px; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+button, .filebtn {
+  font: 500 13px var(--font-ui); color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 11px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; line-height: 1.2;
+}
+button:hover, .filebtn:hover { border-color: var(--accent); }
+button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.filebtn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.filebtn.primary:hover { filter: brightness(1.08); }
+button:focus-visible, .filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#file { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.sep { width: 1px; height: 22px; background: var(--line); }
+main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 280px; }
+#view {
+  position: relative; min-width: 0; min-height: 0;
+  background: linear-gradient(var(--view-top), var(--view-bot));
+}
+#view canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+#view.drag::after {
+  content: "Drop .stp / .step file"; position: absolute; inset: 12px; border: 2px dashed var(--accent);
+  border-radius: 10px; display: grid; place-items: center; font-weight: 600; color: var(--accent);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.badge {
+  position: absolute; left: 12px; top: 12px; font: 500 12px var(--font-mono); color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px;
+  max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hint {
+  position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted);
+}
+#status {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+}
+#status .box {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px;
+  max-width: 380px; text-align: center; line-height: 1.45; pointer-events: auto;
+}
+#status .err { color: #c0392b; }
+.spin { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; margin: 0 auto 8px; animation: s 0.9s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+aside {
+  border-left: 1px solid var(--line); background: var(--panel); min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+aside section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+aside h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.parts { flex: 1; min-height: 0; overflow: auto; border-bottom: none; }
+.parts ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.parts li label {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer;
+}
+.parts li label:hover { background: var(--accent-soft); }
+.sw { width: 10px; height: 10px; border-radius: 2px; flex: none; border: 1px solid var(--line); }
+.parts .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.parts .empty { color: var(--muted); }
+@media (max-width: 720px) {
+  main { grid-template-columns: 1fr; grid-template-rows: 1fr minmax(0, 38%); }
+  aside { border-left: none; border-top: 1px solid var(--line); }
+  .sep { display: none; }
+  .hint { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">DoStep <small>.stp · .step</small></div>
+  <div class="tools">
+    <label class="filebtn primary" for="file">Open file<input id="file" type="file" accept=".stp,.step,.STP,.STEP"></label>
+    <span class="sep"></span>
+    <button id="fit" type="button" title="Fit model to view (F)">Fit</button>
+    <button id="v-iso" type="button">Iso</button>
+    <button id="v-front" type="button">Front</button>
+    <button id="v-top" type="button">Top</button>
+    <button id="v-right" type="button">Right</button>
+    <span class="sep"></span>
+    <button id="t-edges" type="button" aria-pressed="true">Edges</button>
+    <button id="t-wire" type="button" aria-pressed="false">Wireframe</button>
+    <button id="t-grid" type="button" aria-pressed="true">Grid</button>
+  </div>
+</header>
+
+<main>
+  <div id="view">
+    <div class="badge" id="badge">Example part · open a .stp file to replace it</div>
+    <div class="hint">Left drag: rotate · Right drag: pan · Wheel: zoom · Drop a file anywhere</div>
+    <div id="status" hidden><div class="box" id="statusBox"></div></div>
+  </div>
+  <aside>
+    <section>
+      <h2>Model</h2>
+      <dl>
+        <dt>File</dt><dd id="i-file">example</dd>
+        <dt>Size X</dt><dd id="i-x">–</dd>
+        <dt>Size Y</dt><dd id="i-y">–</dd>
+        <dt>Size Z</dt><dd id="i-z">–</dd>
+        <dt>Bodies</dt><dd id="i-bodies">–</dd>
+        <dt>Triangles</dt><dd id="i-tris">–</dd>
+      </dl>
+    </section>
+    <section class="parts">
+      <h2>Bodies</h2>
+      <ul id="parts"><li class="empty">No bodies</li></ul>
+    </section>
+  </aside>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.149.0/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js"></script>
+<script>
+(function () {
+  const view = document.getElementById('view');
+  const $ = (id) => document.getElementById(id);
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  // ---------- three.js setup ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  view.prepend(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 1e7);
+  camera.up.set(0, 0, 1); // CAD convention: Z up
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.12;
+  controls.screenSpacePanning = true;
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6670, 0.75));
+  const key = new THREE.DirectionalLight(0xffffff, 0.75);
+  camera.add(key); key.position.set(1, 1.5, 2);
+  scene.add(camera);
+
+  const model = new THREE.Group();
+  scene.add(model);
+  let grid = null;
+  let state = { edges: true, wire: false, grid: true };
+  let bodies = []; // {name, group, mesh, edges, color}
+
+  function resize() {
+    const w = view.clientWidth, h = view.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / Math.max(h, 1);
+    camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(view);
+  resize();
+
+  (function loop() {
+    requestAnimationFrame(loop);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  // ---------- helpers ----------
+  const fmt = (v) => {
+    const a = Math.abs(v);
+    const d = a >= 1000 ? 0 : a >= 100 ? 1 : 2;
+    return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }) + ' mm';
+  };
+
+  function clearModel() {
+    model.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+    });
+    model.clear();
+    bodies = [];
+  }
+
+  function makeBody(name, geometry, color, materialArray) {
+    const group = new THREE.Group();
+    const mat = materialArray || new THREE.MeshStandardMaterial({
+      color, metalness: 0.15, roughness: 0.55, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    });
+    const mesh = new THREE.Mesh(geometry, mat);
+    const eGeo = new THREE.EdgesGeometry(geometry, 25);
+    const edges = new THREE.LineSegments(eGeo, new THREE.LineBasicMaterial({ color: 0x1a2228, transparent: true, opacity: 0.55 }));
+    group.add(mesh, edges);
+    model.add(group);
+    const b = { name, group, mesh, edges, color };
+    bodies.push(b);
+    return b;
+  }
+
+  function applyDisplay() {
+    bodies.forEach((b) => {
+      b.edges.visible = state.edges && !state.wire;
+      (Array.isArray(b.mesh.material) ? b.mesh.material : [b.mesh.material]).forEach((m) => { m.wireframe = state.wire; });
+    });
+    if (grid) grid.visible = state.grid;
+  }
+
+  function buildGrid(box) {
+    if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+    const size = box.getSize(new THREE.Vector3());
+    const span = Math.max(size.x, size.y) * 2.2 || 100;
+    const step = Math.pow(10, Math.floor(Math.log10(span / 10)));
+    const n = Math.ceil(span / step);
+    const gc = new THREE.Color(css('--grid') || '#b9c3cb');
+    grid = new THREE.GridHelper(n * step, n, gc, gc);
+    grid.rotation.x = Math.PI / 2; // lie in XY plane
+    const c = box.getCenter(new THREE.Vector3());
+    grid.position.set(c.x, c.y, box.min.z);
+    grid.material.transparent = true; grid.material.opacity = 0.5;
+    scene.add(grid);
+    grid.visible = state.grid;
+  }
+
+  function modelBox() {
+    const box = new THREE.Box3();
+    bodies.forEach((b) => { if (b.group.visible) box.expandByObject(b.mesh); });
+    if (box.isEmpty()) bodies.forEach((b) => box.expandByObject(b.mesh));
+    return box;
+  }
+
+  function setView(dir) {
+    const box = modelBox();
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const r = box.getBoundingSphere(new THREE.Sphere()).radius || 1;
+    const dist = r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.1;
+    const d = dir || camera.position.clone().sub(controls.target).normalize();
+    camera.position.copy(c).add(d.clone().normalize().multiplyScalar(dist));
+    camera.near = dist / 1000; camera.far = dist * 100;
+    camera.updateProjectionMatrix();
+    controls.target.copy(c);
+    controls.update();
+  }
+
+  function updateInfo(fileName) {
+    const box = new THREE.Box3();
+    let tris = 0;
+    bodies.forEach((b) => {
+      box.expandByObject(b.mesh);
+      const g = b.mesh.geometry;
+      tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    });
+    const s = box.getSize(new THREE.Vector3());
+    $('i-file').textContent = fileName;
+    $('i-x').textContent = fmt(s.x);
+    $('i-y').textContent = fmt(s.y);
+    $('i-z').textContent = fmt(s.z);
+    $('i-bodies').textContent = bodies.length.toLocaleString('en-US');
+    $('i-tris').textContent = Math.round(tris).toLocaleString('en-US');
+
+    const ul = $('parts');
+    ul.innerHTML = '';
+    if (!bodies.length) { ul.innerHTML = '<li class="empty">No bodies</li>'; return; }
+    bodies.forEach((b, i) => {
+      const li = document.createElement('li');
+      const id = 'part-' + i;
+      li.innerHTML = '<label for="' + id + '"><input type="checkbox" id="' + id + '" checked>' +
+        '<span class="sw"></span><span class="nm"></span></label>';
+      li.querySelector('.sw').style.background = '#' + new THREE.Color(b.color).getHexString();
+      li.querySelector('.nm').textContent = b.name;
+      li.querySelector('.nm').title = b.name;
+      li.querySelector('input').addEventListener('change', (e) => { b.group.visible = e.target.checked; });
+      ul.appendChild(li);
+    });
+  }
+
+  function finishLoad(fileName, badge) {
+    const box = new THREE.Box3().setFromObject(model);
+    buildGrid(box);
+    applyDisplay();
+    setView(new THREE.Vector3(1, -1, 0.8));
+    updateInfo(fileName);
+    $('badge').textContent = badge;
+  }
+
+  // ---------- example part (shown before a file is opened) ----------
+  function loadExample() {
+    clearModel();
+    // Flange: ring plate with bolt holes, plus a hub
+    const shape = new THREE.Shape();
+    shape.absarc(0, 0, 60, 0, Math.PI * 2, false);
+    const bore = new THREE.Path(); bore.absarc(0, 0, 22, 0, Math.PI * 2, true); shape.holes.push(bore);
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      const h = new THREE.Path(); h.absarc(Math.cos(a) * 45, Math.sin(a) * 45, 6.5, 0, Math.PI * 2, true);
+      shape.holes.push(h);
+    }
+    const plate = new THREE.ExtrudeGeometry(shape, { depth: 12, bevelEnabled: false, curveSegments: 48 });
+    makeBody('Flange plate', plate, 0x9fb3c4);
+    const hub = new THREE.CylinderGeometry(32, 32, 40, 64, 1, true);
+    const hubShape = new THREE.Shape(); hubShape.absarc(0, 0, 32, 0, Math.PI * 2, false);
+    const hb = new THREE.Path(); hb.absarc(0, 0, 22, 0, Math.PI * 2, true); hubShape.holes.push(hb);
+    const hubGeo = new THREE.ExtrudeGeometry(hubShape, { depth: 40, bevelEnabled: false, curveSegments: 48 });
+    hubGeo.translate(0, 0, 12);
+    hub.dispose();
+    makeBody('Hub', hubGeo, 0xc2cdd6);
+    finishLoad('example (DN 50 flange)', 'Example part · open a .stp file to replace it');
+  }
+
+  // ---------- STEP import ----------
+  let occtPromise = null;
+  function getOcct() {
+    if (!occtPromise) {
+      if (typeof occtimportjs !== 'function') {
+        return Promise.reject(new Error('The STEP import library did not load. Check your connection and reload the page.'));
+      }
+      occtPromise = occtimportjs({ locateFile: (p) => p.endsWith('.wasm') ? 'occt-import-js.wasm' : p });
+      occtPromise.catch(() => { occtPromise = null; });
+    }
+    return occtPromise;
+  }
+
+  function showStatus(html, isErr) {
+    $('status').hidden = !html;
+    $('statusBox').innerHTML = html || '';
+    $('statusBox').classList.toggle('err', !!isErr);
+  }
+
+  async function openFile(file) {
+    if (!file) return;
+    if (!/\.(stp|step)$/i.test(file.name)) {
+      showStatus('That file is not a STEP model. Choose a file ending in .stp or .step.', true);
+      setTimeout(() => showStatus(''), 3500);
+      return;
+    }
+    showStatus('<div class="spin"></div>Reading ' + escapeHtml(file.name) + '<br><small>Large assemblies can take a while.</small>');
+    try {
+      const [occt, buf] = await Promise.all([getOcct(), file.arrayBuffer()]);
+      await new Promise((r) => setTimeout(r, 30)); // let the spinner paint
+      const res = occt.ReadStepFile(new Uint8Array(buf), {
+        linearUnit: 'millimeter',
+        linearDeflectionType: 'bounding_box_ratio',
+        linearDeflection: 0.001,
+        angularDeflection: 0.5,
+      });
+      if (!res || !res.success || !res.meshes || !res.meshes.length) {
+        throw new Error('No solid geometry was found in this file. It may contain only curves, or be damaged.');
+      }
+      clearModel();
+      res.meshes.forEach((m, i) => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(m.attributes.position.array, 3));
+        if (m.attributes.normal) g.setAttribute('normal', new THREE.Float32BufferAttribute(m.attributes.normal.array, 3));
+        if (m.index) g.setIndex(new THREE.Uint32BufferAttribute(Uint32Array.from(m.index.array), 1));
+        if (!m.attributes.normal) g.computeVertexNormals();
+        const base = m.color ? new THREE.Color(m.color[0], m.color[1], m.color[2]) : new THREE.Color(0xa9b8c5);
+        let mats = null;
+        if (m.brep_faces && m.brep_faces.some((f) => f.color) && m.index) {
+          // per-face colours
+          mats = [new THREE.MeshStandardMaterial({ color: base, metalness: 0.15, roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })];
+          const cmap = new Map();
+          m.brep_faces.forEach((f) => {
+            let mi = 0;
+            if (f.color) {
+              const k = f.color.join(',');
+              if (!cmap.has(k)) {
+                cmap.set(k, mats.length);
+                mats.push(new THREE.MeshStandardMaterial({ color: new THREE.Color(f.color[0], f.color[1], f.color[2]), metalness: 0.15, roughness: 0.55, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+              }
+              mi = cmap.get(k);
+            }
+            g.addGroup(f.first * 3, (f.last - f.first + 1) * 3, mi);
+          });
+        }
+        makeBody(m.name || ('Body ' + (i + 1)), g, base.getHex(), mats);
+      });
+      finishLoad(file.name, file.name);
+      showStatus('');
+    } catch (e) {
+      console.error(e);
+      showStatus('Could not open ' + escapeHtml(file.name) + '.<br><small>' + escapeHtml(e.message || String(e)) + '</small>', true);
+      setTimeout(() => showStatus(''), 6000);
+    }
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  // ---------- UI wiring ----------
+  $('file').addEventListener('change', (e) => { openFile(e.target.files[0]); e.target.value = ''; });
+  ['dragenter', 'dragover'].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); view.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach((t) => document.addEventListener(t, (e) => {
+    e.preventDefault();
+    if (t === 'dragleave' && e.relatedTarget) return;
+    view.classList.remove('drag');
+    if (t === 'drop' && e.dataTransfer.files.length) openFile(e.dataTransfer.files[0]);
+  }));
+
+  $('fit').onclick = () => setView();
+  $('v-iso').onclick = () => setView(new THREE.Vector3(1, -1, 0.8));
+  $('v-front').onclick = () => setView(new THREE.Vector3(0, -1, 0));
+  $('v-top').onclick = () => setView(new THREE.Vector3(0, -0.0001, 1));
+  $('v-right').onclick = () => setView(new THREE.Vector3(1, 0, 0));
+
+  function toggle(id, keyName) {
+    const btn = $(id);
+    btn.onclick = () => {
+      state[keyName] = !state[keyName];
+      btn.setAttribute('aria-pressed', String(state[keyName]));
+      applyDisplay();
+    };
+  }
+  toggle('t-edges', 'edges'); toggle('t-wire', 'wire'); toggle('t-grid', 'grid');
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'f' || e.key === 'F') setView();
+  });
+
+  // Re-tint grid when theme changes
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (grid) buildGrid(new THREE.Box3().setFromObject(model)); });
+
+  loadExample();
+  getOcct().catch(() => {}); // warm up the importer in the background
+})();
+</script>
+</body>
+</html>
