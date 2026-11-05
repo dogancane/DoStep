@@ -165,20 +165,7 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
 </main>
 
 <script>
-  window.__bootErrors = [];
-  window.addEventListener('error', function (e) {
-    if (e.target && e.target.tagName && e.target.tagName !== 'SCRIPT') return;
-    var msg = (e.message || (e.target && e.target.src ? 'Failed to load ' + e.target.src : 'Unknown error'));
-    window.__bootErrors.push(msg);
-    var st = document.getElementById('status'), box = document.getElementById('statusBox');
-    if (st && box && !window.__viewerReady) { st.hidden = false; box.className = 'box err'; box.textContent = 'DoStep failed to start: ' + msg; }
-  }, true);
-</script>
-<script src="lib/three.min.js"></script>
-<script src="lib/OrbitControls.js"></script>
-<script src="lib/occt-import-js.js"></script>
-<script>
-(function () {
+window.__startDoStep = function () {
   const view = document.getElementById('view');
   const $ = (id) => document.getElementById(id);
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -365,7 +352,7 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
   }
 
   // ---------- STEP import ----------
-  const WASM_SOURCES = ['lib/occt-import-js.wasm', 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.wasm'];
+  const WASM_SOURCES = ['lib/occt-import-js.wasm', 'occt-import-js.wasm', 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.wasm'];
   let occtPromise = null;
   function getOcct() {
     if (!occtPromise) {
@@ -495,6 +482,54 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
   window.__viewerReady = true;
   loadExample();
   getOcct().catch(() => {}); // warm up the importer in the background
+};
+</script>
+<script>
+/* Library loader: tries each location in turn, so the page works whether the files sit in lib/,
+   were uploaded flat next to index.html, or only the public CDN is reachable. */
+(function () {
+  function fail(html) {
+    var st = document.getElementById('status'), box = document.getElementById('statusBox');
+    st.hidden = false; box.className = 'box err'; box.innerHTML = html;
+  }
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName) return; // resource errors are handled by the loader
+    if (!window.__viewerReady) fail('DoStep failed to start: ' + String(e.message).replace(/</g, '&lt;'));
+  });
+  var LIBS = [
+    { name: 'three.min.js', ok: function () { return !!window.THREE; },
+      src: ['lib/three.min.js', 'three.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js'] },
+    { name: 'OrbitControls.js', ok: function () { return !!(window.THREE && THREE.OrbitControls); },
+      src: ['lib/OrbitControls.js', 'OrbitControls.js', 'https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js'] },
+    { name: 'occt-import-js.js', ok: function () { return typeof window.occtimportjs === 'function'; },
+      src: ['lib/occt-import-js.js', 'occt-import-js.js', 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js'] }
+  ];
+  function loadOne(lib, i, done) {
+    if (lib.ok()) return done(true);
+    if (i >= lib.src.length) return done(false);
+    var s = document.createElement('script');
+    s.src = lib.src[i];
+    s.onload = function () { lib.ok() ? done(true) : loadOne(lib, i + 1, done); };
+    s.onerror = function () { s.remove(); loadOne(lib, i + 1, done); };
+    document.head.appendChild(s);
+  }
+  var k = 0;
+  (function next() {
+    if (k >= LIBS.length) {
+      try { window.__startDoStep(); }
+      catch (e) { console.error(e); fail('DoStep failed to start: ' + String(e.message).replace(/</g, '&lt;')); }
+      return;
+    }
+    var lib = LIBS[k];
+    loadOne(lib, 0, function (good) {
+      if (!good) {
+        fail('DoStep could not load <b>' + lib.name + '</b>.<br><small>Tried: ' + lib.src.join(', ') +
+             '<br>Check that the <code>lib</code> folder is uploaded next to index.html.</small>');
+        return;
+      }
+      k++; next();
+    });
+  })();
 })();
 </script>
 </body>
