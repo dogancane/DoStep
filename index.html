@@ -125,7 +125,7 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
 <header>
   <div class="brand">DoStep <small>.stp · .step</small></div>
   <div class="tools">
-    <label class="filebtn primary" for="file">Open file<input id="file" type="file" accept=".stp,.step,.STP,.STEP"></label>
+    <label class="filebtn primary" for="file">Open file<input id="file" type="file"></label>
     <span class="sep"></span>
     <button id="fit" type="button" title="Fit model to view (F)">Fit</button>
     <button id="v-iso" type="button">Iso</button>
@@ -164,6 +164,16 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
   </aside>
 </main>
 
+<script>
+  window.__bootErrors = [];
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName && e.target.tagName !== 'SCRIPT') return;
+    var msg = (e.message || (e.target && e.target.src ? 'Failed to load ' + e.target.src : 'Unknown error'));
+    window.__bootErrors.push(msg);
+    var st = document.getElementById('status'), box = document.getElementById('statusBox');
+    if (st && box && !window.__viewerReady) { st.hidden = false; box.className = 'box err'; box.textContent = 'DoStep failed to start: ' + msg; }
+  }, true);
+</script>
 <script src="lib/three.min.js"></script>
 <script src="lib/OrbitControls.js"></script>
 <script src="lib/occt-import-js.js"></script>
@@ -355,13 +365,26 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
   }
 
   // ---------- STEP import ----------
+  const WASM_SOURCES = ['lib/occt-import-js.wasm', 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.wasm'];
   let occtPromise = null;
   function getOcct() {
     if (!occtPromise) {
       if (typeof occtimportjs !== 'function') {
         return Promise.reject(new Error('The STEP import library did not load. Check your connection and reload the page.'));
       }
-      occtPromise = occtimportjs({ locateFile: (p) => p.endsWith('.wasm') ? 'lib/occt-import-js.wasm' : p });
+      occtPromise = (async () => {
+        const sources = WASM_SOURCES;
+        let lastErr = null;
+        for (const src of sources) {
+          try {
+            const r = await fetch(src);
+            if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + src);
+            const wasmBinary = await r.arrayBuffer();
+            return await occtimportjs({ wasmBinary, locateFile: (p) => p });
+          } catch (e) { lastErr = e; console.warn('STEP engine source failed:', src, e); }
+        }
+        throw new Error('The STEP engine (occt-import-js.wasm) could not be loaded. ' + (lastErr ? lastErr.message : ''));
+      })();
       occtPromise.catch(() => { occtPromise = null; });
     }
     return occtPromise;
@@ -369,15 +392,16 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
 
   function showStatus(html, isErr) {
     $('status').hidden = !html;
-    $('statusBox').innerHTML = html || '';
+    $('statusBox').innerHTML = (html || '') + (isErr ? '<div><button type="button" id="dismiss" style="margin-top:10px">Close</button></div>' : '');
     $('statusBox').classList.toggle('err', !!isErr);
+    if (isErr) $('dismiss').onclick = () => showStatus('');
   }
 
   async function openFile(file) {
     if (!file) return;
-    if (!/\.(stp|step)$/i.test(file.name)) {
-      showStatus('That file is not a STEP model. Choose a file ending in .stp or .step.', true);
-      setTimeout(() => showStatus(''), 3500);
+    const head = await file.slice(0, 2048).text().catch(() => '');
+    if (!/\.(stp|step|p21)$/i.test(file.name) && head.indexOf('ISO-10303-21') === -1) {
+      showStatus(escapeHtml(file.name) + ' is not a STEP model. Choose a .stp or .step file.', true);
       return;
     }
     showStatus('<div class="spin"></div>Reading ' + escapeHtml(file.name) + '<br><small>Large assemblies can take a while.</small>');
@@ -426,7 +450,6 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
     } catch (e) {
       console.error(e);
       showStatus('Could not open ' + escapeHtml(file.name) + '.<br><small>' + escapeHtml(e.message || String(e)) + '</small>', true);
-      setTimeout(() => showStatus(''), 6000);
     }
   }
 
@@ -434,13 +457,16 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
 
   // ---------- UI wiring ----------
   $('file').addEventListener('change', (e) => { openFile(e.target.files[0]); e.target.value = ''; });
-  ['dragenter', 'dragover'].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); view.classList.add('drag'); }));
-  ['dragleave', 'drop'].forEach((t) => document.addEventListener(t, (e) => {
-    e.preventDefault();
-    if (t === 'dragleave' && e.relatedTarget) return;
-    view.classList.remove('drag');
-    if (t === 'drop' && e.dataTransfer.files.length) openFile(e.dataTransfer.files[0]);
-  }));
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; view.classList.add('drag'); });
+  window.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) view.classList.remove('drag'); });
+  window.addEventListener('drop', (e) => {
+    e.preventDefault(); dragDepth = 0; view.classList.remove('drag');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) openFile(f);
+  });
 
   $('fit').onclick = () => setView();
   $('v-iso').onclick = () => setView(new THREE.Vector3(1, -1, 0.8));
@@ -466,6 +492,7 @@ dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-num
   // Re-tint grid when theme changes
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (grid) buildGrid(new THREE.Box3().setFromObject(model)); });
 
+  window.__viewerReady = true;
   loadExample();
   getOcct().catch(() => {}); // warm up the importer in the background
 })();
